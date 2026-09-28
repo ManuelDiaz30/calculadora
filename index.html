@@ -23,12 +23,14 @@
       }
 
       * { box-sizing: border-box; }
-      html { scroll-behavior: smooth; }
+      html { scroll-behavior: auto; }
       body {
         margin: 0;
         font-family: Arial, Helvetica, sans-serif;
         background: linear-gradient(180deg, #030d18 0%, #0b1220 100%);
         color: var(--text);
+        overflow: hidden;
+        overscroll-behavior: none;
       }
 
       a { text-decoration: none; color: inherit; }
@@ -260,6 +262,15 @@
         color: var(--text);
         text-align: center;
         font-size: 1rem;
+        appearance: none;
+        -moz-appearance: textfield;
+        caret-color: var(--accent);
+      }
+
+      .qty-input::-webkit-outer-spin-button,
+      .qty-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
       }
 
       .subtotal {
@@ -418,12 +429,12 @@
 
           <div class="controls" style="margin-top: 18px;">
             <div class="field">
-              <label for="generalDiscount">Desconto geral</label>
-              <select id="generalDiscount">
+              <label for="ammoDiscount">Desconto geral</label>
+              <select id="ammoDiscount">
                 <option value="0">Sem desconto</option>
                 <option value="5">5%</option>
                 <option value="10">10%</option>
-                <option value="15">15%</option>
+                <option value="15" selected>15%</option>
                 <option value="20">20%</option>
                 <option value="25">25%</option>
                 <option value="30">30%</option>
@@ -437,19 +448,6 @@
     <footer>IronFront Store • Armas e munição</footer>
 
     <script>
-      const weaponCouponDiscounts = {
-        uzi: 28.57,
-        mtar21: 26.67,
-        m16: 25,
-        aug: 33.33,
-        ak47: 34.78,
-        mossberg500: 27.27,
-        mossberg590: 28,
-        sniper: 26.67,
-        g3: 30.77,
-        pt: 34.62
-      };
-
       const weapons = [
         { id: 'uzi', name: 'UZI', baseValue: 100000, quantity: 0 },
         { id: 'mtar21', name: 'MTAR-21', baseValue: 200000, quantity: 0 },
@@ -473,13 +471,16 @@
 
       const state = {
         activeSection: 'weapons',
+        ammoDiscount: 15,
         generalDiscount: 0
       };
 
       function resetDiscountState() {
+        state.ammoDiscount = 15;
         state.generalDiscount = 0;
-        const generalDiscount = document.getElementById('generalDiscount');
-        if (generalDiscount) generalDiscount.value = '0';
+
+        const ammoDiscount = document.getElementById('ammoDiscount');
+        if (ammoDiscount) ammoDiscount.value = '15';
       }
 
       function formatMoney(value) {
@@ -493,10 +494,10 @@
 
       function getEffectivePercent(item) {
         if (item && 'lotSize' in item) {
-          return Number(state.generalDiscount || 0);
+          return Number(state.ammoDiscount || 0);
         }
 
-        return 0;
+        return Number(state.generalDiscount || 0);
       }
 
       function renderWeapons() {
@@ -575,10 +576,13 @@
         });
       });
 
-      document.getElementById('generalDiscount').addEventListener('change', (event) => {
-        state.generalDiscount = Number(event.target.value || 0);
-        renderActiveSection();
-      });
+      const ammoDiscount = document.getElementById('ammoDiscount');
+      if (ammoDiscount) {
+        ammoDiscount.addEventListener('change', (event) => {
+          state.ammoDiscount = Number(event.target.value || 0);
+          renderActiveSection();
+        });
+      }
 
       document.getElementById('clearAll').addEventListener('click', () => {
         weapons.forEach((item) => { item.quantity = 0; });
@@ -587,21 +591,75 @@
         renderActiveSection();
       });
 
+      function updateWeaponRow(item) {
+        const row = document.querySelector(`[data-weapon-id="${item.id}"]`)?.closest('tr');
+        if (!row) return;
+
+        const itemDiscount = getEffectivePercent(item);
+        const subtotal = item.quantity * (item.baseValue * (1 - itemDiscount / 100));
+        row.querySelector('.subtotal').textContent = formatMoney(subtotal);
+
+        const totalWeapons = weapons.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+        const totalValue = weapons.reduce((sum, entry) => {
+          const entryDiscount = getEffectivePercent(entry);
+          return sum + (Number(entry.quantity || 0) * entry.baseValue * (1 - entryDiscount / 100));
+        }, 0);
+
+        document.getElementById('totalWeapons').textContent = String(totalWeapons);
+        document.getElementById('totalWeaponsValue').textContent = formatMoney(totalValue);
+      }
+
+      function updateAmmoRow(item) {
+        const row = document.querySelector(`[data-ammo-id="${item.id}"]`)?.closest('tr');
+        if (!row) return;
+
+        const itemDiscount = getEffectivePercent(item);
+        const subtotal = item.quantity * item.basePrice * (1 - itemDiscount / 100);
+        row.querySelector('.subtotal').textContent = formatMoney(subtotal);
+
+        const totalAmmo = ammo.reduce((sum, entry) => sum + Number(entry.quantity || 0), 0);
+        const totalValue = ammo.reduce((sum, entry) => {
+          const entryDiscount = getEffectivePercent(entry);
+          return sum + (Number(entry.quantity || 0) * entry.basePrice * (1 - entryDiscount / 100));
+        }, 0);
+
+        document.getElementById('totalAmmo').textContent = String(totalAmmo);
+        document.getElementById('totalAmmoValue').textContent = formatMoney(totalValue);
+      }
+
       document.addEventListener('input', (event) => {
         const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+
         if (target.matches('[data-weapon-id]')) {
           const item = weapons.find((entry) => entry.id === target.dataset.weaponId);
           if (!item) return;
-          item.quantity = Number((target.value || '').replace(/\D/g, '')) || 0;
-          renderWeapons();
+          const raw = target.value.replace(/\D/g, '');
+          item.quantity = raw === '' ? 0 : Number(raw);
+          updateWeaponRow(item);
           return;
         }
 
         if (target.matches('[data-ammo-id]')) {
           const item = ammo.find((entry) => entry.id === target.dataset.ammoId);
           if (!item) return;
-          item.quantity = Number((target.value || '').replace(/\D/g, '')) || 0;
-          renderAmmo();
+          const raw = target.value.replace(/\D/g, '');
+          item.quantity = raw === '' ? 0 : Number(raw);
+          updateAmmoRow(item);
+        }
+      });
+
+      document.addEventListener('wheel', (event) => {
+        if (event.target instanceof HTMLElement && event.target.matches('.qty-input')) {
+          event.preventDefault();
+        }
+      }, { passive: false });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.target instanceof HTMLElement && event.target.matches('.qty-input')) {
+          if (["e", "E", "+", "-", "."].includes(event.key)) {
+            event.preventDefault();
+          }
         }
       });
 
